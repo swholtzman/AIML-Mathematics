@@ -1,0 +1,75 @@
+LINE PLOTS
+Regarding line plots, it is clear that the unsorted and erratic data does not lend itself to a clear line plot.
+Though in many plots, trends may be observed such as exponential reduction or increase over time regarding one feature vs another, a scatterplot would be a much more effective determinant of correlation between features.
+It should, too, be noted, that only quantitative features may be used when attempting to chart feature relations using a line plot.
+Any attempt to integrate categorical features into the provided data will result data charts which are completely unintelligible, serving no inherent use to us.
+It should also be noted that, unless our data is sorted ahead of time, our connected line graph will be unreadable.
+Therefore, regarding line graphs, quantitative features would hold the only relevant data for a line graph; however, a line graph is not an appropriate representation of the data when a scatter plot would be far more effective for this data set of discrete values.
+
+BAR PLOTS
+In terms of bar plots, we find a similar issue to line plots.
+Charting any configuration of the data results in useless visualizations, most of which are completely unintelligible.
+When categorical data is plotted on the y-axis and quantitative data is on the x-axis, the graphs are completely useless.
+The only time the graphs are somewhat visualizable is when categorical data is plotted on the x-axis, as is the use case of a bar plot.
+Symboling shows mild promise when plotted on the x-axis, but this is only when compared to the other, far more erratic bar charts, and likely not usable.
+However, back to my original point, bar plots do not lend themselves particularly well to this data set.
+If we want to find a more usable visualization of this data, with a similar structure, we will have to attempt a histogram representation.
+
+HISTOGRAMS
+After our failure to find a reasonable representation of data using a bar chart, we turn to histograms.
+Histograms show more promise as a method for comparison, but still have issues when using quantitative data.
+Histograms lend themselves best to comparisons of categorical data when said data is plotted on the x-axis.
+We find that when categorical features are mapped across the x-axis, a histogram becomes a reasonable method for visualizing data.
+Some interesting observations can be made from the generated histograms:
+- Volvos have the lowest symboling rate at -1, being the only car make with negative symboling.
+- Chevrolet has the best fuel economy vs jaguar and porsche with the lowest
+- Three-cylinder engines have the best fuel economy, while twelve has the worst. The trend shows that the more cylinders an engine has, the worse the fuel economy.
+- Jaguar, Mercedes, and Porsche have the largest engine size, while Chevrolet has the smallest.
+- Jaguar and Porsche have the highest horsepower, while Chevrolet has the lowest.
+- Horsepower increases with more cylinders, as 12 cylinders has the highest horsepower and three-cylinders has the lowest.
+- Jaguar, Porsche, and Mercedes have the most expensive cars, while Chevrolet and Dodge have the cheapest.
+
+Given the above observations, we begin to paint a picture of relation between larger engine sizes producing more horsepower, and increasing the price of the vehicle.
+
+
+SCATTERPLOTS
+Scatterplots show the most promise for our data visualization purposes.
+Given our data consists of discrete, unsorted values, any trends that may be seen with a line chart, are not visible, as defined in our line chart section.
+Using the scatter plots, we can avoid this issue and observe any possible trends between features.
+This visualization technique exposes numerous observable trends such as:
+- Increase in price of a vehicle with increasing engine size may indicate that a larger engine results in a more expensive vehicle
+- Increase in price of a vehicle with increasing curb-weight may indicate heavier vehicles tend to be more expensive
+- Exponential decrease in price of a vehicle with an increase in highway-mpg gives an unintuitive observation that better mpg results in a cheaper vehicle
+- Linear relationship between city-mpg and highway-mpg with both increasing together
+- Exponential decrease in horsepower with an increasing highway-mpg suggests lower horsepower has better fuel economy
+- Exponential decrease in engine-size with an increase in highway-mpg suggests smaller (lighter) engines may be more fuel efficient
+- Exponential decrease in price with improving city-mpg suggests lower cheaper cars may be more fuel efficient (perhaps horsepower is a better judgement of price?)
+- Exponential decrease in horsepower with an increasing city-mpg shows more fuel efficient cars have lower horsepower
+- Exponential decrease in engine size with an increasing city-mpg suggests smaller engines are more fuel efficient
+- Exponential decrease in curb-weight with increase in city-mpg
+- Exponential decrease in highway and city mpg with increase in horsepower suggests stronger vehicles are less fuel efficient
+- Linear increase in horsepower with an increase in engine size suggests larger engines are more powerful
+- Exponential decrease in city and highway mpg with an increase in engine size suggests larger engines are more fuel efficient
+- Logarithmic growth in curb weight vs engine size shows a larger engine typically results in a heavier vehicle
+- Exponential increase in price with an increasing curb-weight suggests heavier vehicles are more expensive
+- Linear decrease in highway and city mpg with an increase in width and length shows larger cars are less fuel efficient
+- Exponential increase in price with an increase in length suggests larger cars are more expensive
+- Exponential increase in engine-size with an increase in length/width suggests larger cars have larger engines
+- Linear increase in wheel-base with an increase in length/width suggests larger cars have wider wheel bases
+
+It's quite apparent from our data that lighter cars typically have reduced horsepower, but are much more fuel efficient for it.
+It can also be observed vehicles with larger engines are heavier, but have much higher horsepower than lighter vehicles
+This horsepower decreases fuel economy, but seems to increase the pricing of the vehicle
+Loose (but still statistically relevant) relations between width/length and mpg also backs up our previous observation that smaller cars are more fuel efficient
+It should, however, be noted that categorical data should not be graphed with a scatter plot.
+The scatter plot results of categorical data show bar/histogram-like structures, reinforcing our previous conclusion that these data structures lend themselves well to categorical comparisons.
+
+
+
+Given our observations made above, we can quite confidently say that Line Graphs and Bar Graphs are not appropriate visualization techniques for our particular data set.
+Using histograms and scatterplots, it becomes increasingly apparent that a larger engine is heavier, produces more horsepower, is less fuel efficient but increases the price of a vehicle.
+Smaller engines result in lighter and smaller vehicles, but are also much cheaper.
+Given our observations gained from analyzing the visual data from our generations, there is found to be a clear correlation between the size of the vehicle and the price of the vehicle.
+With that in mind, we then notice that the size of the vehicle is related to the size of the engine and the power output (horsepower) of that engine.
+Increased horsepower is also driven by engine size, and expensive cars have larger engines with higher horsepower.
+We can therefore extrapolate the conclusion that larger, more powerful engines tend to result in more expensive cars, meaning larger engine sizes are a driving factor in a cars resale value.

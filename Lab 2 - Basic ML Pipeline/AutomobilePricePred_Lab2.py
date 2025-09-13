@@ -119,7 +119,7 @@ print('Coefficient of Determination = ', CoD)
 # Have a loop that attempts each value with each of the features and
 # return the feature that resulted in the lowest mae
 
-print("Lab 1 - Part 2")
+print("\n\n---+--- Lab 1 - Part 2 ---+---\n")
 
 per_feature_mae = {}
 
