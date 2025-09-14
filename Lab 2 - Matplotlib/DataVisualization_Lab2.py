@@ -1,8 +1,12 @@
 #imports
+import glob
+import os
+
 import pandas as pd
 import numpy as np
 import random
 import matplotlib.pyplot as plt
+from matplotlib import image as mpimg
 
 # ingest data
 data = pd.read_csv("AutomobilePrice_Lab2.csv")
@@ -74,6 +78,45 @@ y_cat = data[categorical_labels].to_numpy(dtype=object)
 y_all = data[quantitative_labels + categorical_labels].to_numpy()
 
 
+
+# subplot grid helper
+def make_grid_manager(n_rows = 4, n_cols = 4, fig_size = (16, 12)):
+    """
+    Returns (next_axis, flush) closures for cycling through a nrows * ncols grid.
+    Call next_axis() to get an Axes; when the grid fills, it auto-shows and
+    starts a new figure. Call flush() once at the end to show the last, partial grid.
+
+    :param n_rows:
+    :param n_cols:
+    :param fig_size:
+    :return:
+    """
+    fig, axes = plt.subplots(n_rows, n_cols, figsize = fig_size)
+    axes = axes.ravel()
+    index = 0
+
+    def next_axis():
+        nonlocal fig, axes, index
+        if index >= len(axes):
+            plt.tight_layout()
+            plt.show()
+            fig, axes = plt.subplots(n_rows, n_cols, figsize = fig_size)
+            axes = axes.ravel()
+            index = 0
+        axis = axes[index]
+        index += 1
+        return axis
+
+    def flush():
+        # hide any unused axes in the last (partial) grid
+        for axis in axes[index:]:
+            axis.axis("off")
+        plt.tight_layout()
+        plt.show()
+
+    return next_axis, flush
+
+
 # plot feature vs feature
 def plot_exhaustive(x_list, y_list, kind="plot"):
     """
@@ -93,28 +136,35 @@ def plot_exhaustive(x_list, y_list, kind="plot"):
         "scatter": "scatter",
     }
     method_name = aliases.get(kind, kind)
+
+    next_axis, flush = make_grid_manager(n_rows=4, n_cols=4, fig_size=(16, 12))
+
     plot_fn = getattr(plt, method_name, None)
     if not callable(plot_fn):
         raise ValueError(f"matplotlib has no plotting function plt.{method_name}()")
 
-    for feature1 in x_list:  # x-axis
-        for feature2 in y_list:  # y-axis
-            # do not plot the same features against themselves
+    for feature1 in x_list:          # x-axis
+        for feature2 in y_list:      # y-axis
+
+            # do not plot same features against themselves
             if feature1 == feature2:
                 continue
 
             sorted_data = data.sort_values(by=feature1)
 
-            # one figure per plot so each shows separately
-            plt.figure()
-            # for bar: x is categories / numeric, y is heights ("exhaustive" even if odd)
-            plot_fn(sorted_data[feature1], sorted_data[feature2])
+            axis = next_axis()  # <<< get the next subplot
+            # use the Axes' method instead of global plt.<method>
+            plot_fn = getattr(axis, method_name, None)
+            if not callable(plot_fn):
+                raise ValueError(f"matplotlib has no Axes method ax.{method_name}()")
 
-            plt.xlabel(feature1)
-            plt.ylabel(feature2)
-            plt.title(f"{method_name}: {feature1} vs {feature2}")
-            plt.tight_layout()
-            plt.show()
+            plot_fn(sorted_data[feature1], sorted_data[feature2])
+            axis.set_xlabel(feature1)
+            axis.set_ylabel(feature2)
+            axis.set_title(f"{method_name}: {feature1} vs {feature2}")
+
+    flush()  # <<< show the last (possibly partial) 4×4
+
 
 
 # ======== EXHAUSTIVE LINE GRAPH GENERATIONS ========
@@ -154,139 +204,126 @@ def plot_exhaustive(x_list, y_list, kind="plot"):
 # ========= EXHAUSTIVE HISTOGRAM GENERATIONS =========
 from pandas.core.dtypes.common import is_numeric_dtype as is_num_type
 
-def hist_exhaustive(
-    y_list,
-    x_list,
-    *,
-    bins=0,
-    density=False,
-    overlay_mode="overlay",     # "overlay" | "stacked" for numeric-vs-numeric
-    catcat_mode="grouped",      # "grouped" | "stacked" for categorical-vs-categorical
-    max_legend_items=20
-):
+def binned_aggregate_bars(dataframe, feature_x, feature_y, *, bins=20, statistic="mean", axis=None):
     """
-    Draw classic bar-like histograms/exhaustive bar charts for every (feature1, feature2) pair.
+    Put feature_x on the x-axis via binning, and plot an aggregate of feature_y on the y-axis as bars.
 
-    Behavior by dtype:
-      • numeric vs numeric  -> two 1D histograms in the same axes (overlay or stacked), using shared edges
-      • categorical vs categorical -> grouped (or stacked) bar chart from a crosstab of counts (all categories)
-      • numeric vs categorical -> overlaid 1D histograms (one per category), shared edges
-
-    Assumes `data` is a cleaned pandas DataFrame (no NaNs/bad samples).
-
-    :param y_list: list[str]; features to iterate as the y-axis label (name only; plotting is 1D bars)
-    :param x_list: list[str]; features to iterate as the x-axis label (name only; plotting is 1D bars)
-    :param bins: "auto" | int | array-like; bin rule or explicit edges for numeric histograms
-    :param density: bool; plot probability density instead of counts for numeric histograms
-    :param overlay_mode: str; "overlay" or "stacked" for numeric vs numeric
-    :param catcat_mode: str; "grouped" or "stacked" for categorical vs categorical
-    :param max_legend_items: int; legend suppressed if more than this many entries
+    :param dataframe: pandas.DataFrame; cleaned dataset (no NaNs/bad samples).
+    :param feature_x: str; feature to place on the x-axis (numeric or categorical).
+    :param feature_y: str; numeric feature to summarize on the y-axis.
+    :param bins: int | "auto"; number of bins (ignored if feature_x is categorical).
+    :param statistic: str; one of {"mean","median","sum"} to summarize feature_y within each bin/category.
+    :param axis: matplotlib.axes.Axes; subplot to draw on
     :return: None
     """
+    if statistic not in {"mean", "median", "sum"}:
+        raise ValueError("statistic must be one of {'mean','median','sum'}")
+    if axis is None:
+        axis = plt.gca()
 
-    for feature1 in y_list:
-        for feature2 in x_list:
-            if feature1 == feature2:
+    series_x = dataframe[feature_x]
+    series_y = dataframe[feature_y].astype(float)
+
+    if is_num_type(series_x):
+        # numeric x -> bin, then aggregate y within bins
+        values_x = series_x.to_numpy(dtype=float)
+        bin_edges = np.histogram_bin_edges(values_x, bins=bins)
+        bin_indices = np.digitize(values_x, bin_edges, right=False)
+
+        bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+        results = []
+        for index in range(1, len(bin_edges)):  # bins are 1..len(edges)-1
+            in_bin = (bin_indices == index)
+            if not np.any(in_bin):
+                results.append(np.nan)
+                continue
+            if statistic == "mean":
+                results.append(series_y[in_bin].mean())
+            elif statistic == "median":
+                results.append(series_y[in_bin].median())
+            else:
+                results.append(series_y[in_bin].sum())
+
+        bar_x = bin_centers
+        bar_heights = np.array(results, dtype=float)
+
+        axis.bar(bar_x, bar_heights, width=np.diff(bin_edges),
+                 align="center", edgecolor="black", linewidth=0.4)
+        axis.set_xlabel(f"{feature_x} (binned)")
+        axis.set_ylabel(f"{statistic}({feature_y})")
+        axis.set_title(f"Binned {feature_x} vs aggregated {feature_y} ({statistic})")
+
+    else:
+        # categorical x -> category bars of aggregated y
+        if statistic == "mean":
+            aggregated = series_y.groupby(series_x).mean()
+        elif statistic == "median":
+            aggregated = series_y.groupby(series_x).median()
+        else:
+            aggregated = series_y.groupby(series_x).sum()
+
+        aggregated = aggregated.sort_index()
+
+        axis.bar(aggregated.index.astype(str), aggregated.values,
+                 edgecolor="black", linewidth=0.4)
+        axis.set_xlabel(feature_x)
+        axis.set_ylabel(f"{statistic}({feature_y})")
+        axis.set_title(f"{feature_y} by {feature_x} ({statistic})")
+        axis.tick_params(axis="x", labelrotation=90)
+
+
+def hist_axes_experiment(dataframe, x_features, y_features, *, bins=20, statistic="mean", mode="binned"):
+    """
+    Loop over feature pairs and visualize with binned-aggregation bars in paged 4x4 subplots.
+
+    :param dataframe: pandas.DataFrame; cleaned dataset.
+    :param x_features: list[str]; features to place on the x-axis.
+    :param y_features: list[str]; features to summarize/compare on the y-axis.
+    :param bins: int | "auto"; passed to the underlying plotter.
+    :param statistic: str; {'mean','median','sum'} for the binned aggregation.
+    :param mode: str; kept for signature compatibility (unused here).
+    :return: None
+    """
+    next_axis, flush = make_grid_manager(n_rows=4, n_cols=4, fig_size=(16, 12))
+
+    for feature_x in x_features:
+        for feature_y in y_features:
+            if feature_x == feature_y:
                 continue
 
-            series1 = data[feature1]
-            series2 = data[feature2]
-            feature1_is_numeric = is_num_type(series1)
-            feature2_is_numeric = is_num_type(series2)
+            y_is_num = is_num_type(dataframe[feature_y])
+            if not y_is_num:
+                # cannot aggregate a categorical y into numeric bars
+                continue
 
-            # ---------- numeric vs numeric: two classic 1D histograms ----------
-            if feature1_is_numeric and feature2_is_numeric:
-                values1 = series1.to_numpy(dtype=float)
-                values2 = series2.to_numpy(dtype=float)
+            axis = next_axis()
+            binned_aggregate_bars(
+                dataframe,
+                feature_x,
+                feature_y,
+                bins=bins,
+                statistic=statistic,
+                axis=axis
+            )
 
-                # shared edges from both columns for fair comparison
-                combined = np.concatenate([values1, values2])
-                edges = np.histogram_bin_edges(combined, bins=bins)
+    flush()
 
-                plt.figure()
-                if overlay_mode == "stacked":
-                    plt.hist(
-                        [values1, values2],
-                             bins=edges,
-                             density=density,
-                             stacked=True,
-                             label=[feature1, feature2],
-                             edgecolor="black",
-                             linewidth=0.4
-                             )
-                else:
-                    # overlay with transparency
-                    plt.hist(values1, bins=edges, density=density, alpha=0.6, label=feature1, edgecolor="black", linewidth=0.4)
-                    plt.hist(values2, bins=edges, density=density, alpha=0.6, label=feature2, edgecolor="black", linewidth=0.4)
 
-                plt.xlabel("value")
-                plt.ylabel("density" if density else "count")
-                plt.title(f"Histogram: {feature1} vs {feature2} (1D, shared bins)")
-                plt.legend()
-                plt.tight_layout()
-                plt.show()
-                plt.close()
+# histograms | quantitative vs quantitative
+# hist_axes_experiment(data, x_features=quantitative_features,
+#                      y_features=quantitative_features, bins=20, statistic="mean", mode="binned")
 
-            # ---------- categorical vs categorical: grouped/stacked bars ----------
-            elif (not feature1_is_numeric) and (not feature2_is_numeric):
-                crosstab_counts = pd.crosstab(series1, series2)  # all categories
+# histograms | categorical vs categorical
+# hist_axes_experiment(data, x_features=categorical_features,
+#                      y_features=categorical_features, bins=20, statistic="mean", mode="binned")
 
-                plt.figure()
-                ax = None
-                if catcat_mode == "stacked":
-                    ax = crosstab_counts.plot(kind="bar", stacked=True, edgecolor="black", linewidth=0.4)
-                else:
-                    ax = crosstab_counts.plot(kind="bar", stacked=False, edgecolor="black", linewidth=0.4)
+# histograms | quantitative vs categorical
+# hist_axes_experiment(data, x_features=quantitative_features,
+#                      y_features=categorical_features, bins=20, statistic="mean", mode="binned")
 
-                plt.xlabel(feature1)
-                plt.ylabel("count")
-                plt.title(f"Counts: {feature1} by {feature2}")
-                plt.xticks(rotation=90)
-                if crosstab_counts.shape[1] <= max_legend_items:
-                    plt.legend(title=feature2, fontsize="x-small", ncol=2)
-                else:
-                    plt.legend([], [], frameon=False)  # suppress if too many
-                plt.tight_layout()
-                plt.show()
-                plt.close()
-
-            # ---------- numeric vs categorical: overlaid 1D histograms ----------
-            else:
-                categorical_feature, numeric_feature = (feature1, feature2) if not feature1_is_numeric else (feature2, feature1)
-                series_cat = data[categorical_feature]
-                series_num = data[numeric_feature].astype(float)
-
-                # shared edges per numeric feature
-                edges = np.histogram_bin_edges(series_num.to_numpy(), bins=bins)
-
-                # stable category order: frequency, then name
-                category_order = series_cat.value_counts().sort_index().sort_values(ascending=False).index
-
-                plt.figure()
-                for category_value in category_order:
-                    values = series_num[series_cat == category_value].to_numpy()
-                    if values.size == 0:
-                        continue
-                    plt.hist(values, bins=edges, density=density, alpha=0.35, label=str(category_value), edgecolor="black", linewidth=0.4)
-
-                plt.xlabel(numeric_feature)
-                plt.ylabel("density" if density else "count")
-                plt.title(f"{numeric_feature} distribution by {categorical_feature} (all categories)")
-                if len(category_order) <= max_legend_items:
-                    plt.legend(title=categorical_feature, fontsize="x-small", ncol=2)
-                plt.tight_layout()
-                plt.show()
-                plt.close()
-
-# quantitative vs quantitative (2D hist)
-# hist_exhaustive(quantitative_features, quantitative_features, bins=30)
-
-# categorical vs categorical (heatmap)
-# hist_exhaustive(categorical_features, categorical_features)
-
-# numeric vs categorical (overlaid 1D hists)
-# hist_exhaustive(quantitative_features, categorical_features, bins="auto")
-# hist_exhaustive(categorical_features, quantitative_features, bins="auto")
+# histograms | categorical vs quantitative
+# hist_axes_experiment(data, x_features=categorical_features,
+#                      y_features=quantitative_features, bins=20, statistic="mean", mode="binned")
 # ========= EXHAUSTIVE HISTOGRAM GENERATIONS =========
 
 
@@ -305,142 +342,57 @@ def hist_exhaustive(
 # plot_exhaustive(quantitative_features, categorical_features, kind="scatter")
 # ========= EXHAUSTIVE SCATTER PLOT GENERATIONS =========
 
-# plot for mae
 
 
-def pair_hist2d_numeric(dataframe, feature_x, feature_y, *, bins=20, density=False):
+# PRINTS GROUPS OF PROVIDED VISUALIZATIONS GIVEN IN SUBMITTED .ZIP FOLDER
+def chunk(sequence, size):
+    for start in range(0, len(sequence), size):
+        yield sequence[start:start+size]
+
+def grid_from_folder(folder_path, *, rows=4, cols=4, pattern="*.png", sort=True, title=True):
     """
-    Plot a true 2D histogram where both axes are numeric features and the color encodes count or density.
-
-    :param dataframe: pandas.DataFrame; cleaned dataset (no NaNs/bad samples).
-    :param feature_x: str; name of the numeric feature on the x-axis.
-    :param feature_y: str; name of the numeric feature on the y-axis.
-    :param bins: int | (int, int) | "auto"; number of bins (or per-axis tuple) or rule.
-    :param density: bool; normalize to show density instead of counts.
-    :return: None
+    Render all images in folder as paged grids of rows×cols subplots.
+    Starts a new figure every rows*cols images. Hides unused axes on last page.
     """
-    values_x = dataframe[feature_x].to_numpy(dtype=float)
-    values_y = dataframe[feature_y].to_numpy(dtype=float)
+    # resolve folder relative to this file
+    folder_path = os.path.join(os.path.dirname(__file__), folder_path)
+    files = glob.glob(os.path.join(folder_path, pattern))
 
-    plt.figure()
-    # 2D histogram: features on both axes; color = count (or density)
-    plt.hist2d(values_x, values_y, bins=bins, density=density)
-    plt.xlabel(feature_x)
-    plt.ylabel(feature_y)
-    plt.title(f"2D histogram: {feature_x} vs {feature_y}")
-    plt.colorbar(label="density" if density else "count")
-    plt.tight_layout()
-    plt.show()
+    if sort:
+        # stable human-ish sort
+        files.sort(key=lambda p: os.path.basename(p).lower())
 
+    per_page = rows * cols
+    if not files:
+        print(f"[grid_from_folder] No images found in: {folder_path}")
+        return
 
-def binned_aggregate_bars(dataframe, feature_x, feature_y, *, bins=20, statistic="mean"):
-    """
-    Put feature_x on the x-axis via binning, and plot an aggregate of feature_y on the y-axis as bars.
-    This is not a histogram in the strict sense (y != count), but it answers "what if the y-axis is a feature?"
+    for page in chunk(files, per_page):
+        fig, axes = plt.subplots(rows, cols, figsize=(4*cols, 3*rows))
+        axes = axes.ravel() if per_page > 1 else [axes]
 
-    Rules:
-      - If feature_x is numeric: bin it, then aggregate feature_y per bin -> bar heights.
-      - If feature_x is categorical: categories on x, then aggregate feature_y per category -> bar heights.
-
-    :param dataframe: pandas.DataFrame; cleaned dataset (no NaNs/bad samples).
-    :param feature_x: str; feature to place on the x-axis (numeric or categorical).
-    :param feature_y: str; numeric feature to summarize on the y-axis.
-    :param bins: int | "auto"; number of bins (ignored if feature_x is categorical).
-    :param statistic: str; one of {"mean","median","sum"} to summarize feature_y within each bin/category.
-    :return: None
-    """
-    if statistic not in {"mean", "median", "sum"}:
-        raise ValueError("statistic must be one of {'mean','median','sum'}")
-
-    series_x = dataframe[feature_x]
-    series_y = dataframe[feature_y].astype(float)
-
-    if is_num_type(series_x):
-        # numeric x -> bin, then aggregate y within bins
-        bin_edges = np.histogram_bin_edges(series_x.to_numpy(dtype=float), bins=bins)
-        bin_indices = np.digitize(series_x.to_numpy(dtype=float), bin_edges, right=False)
-
-        # make readable bin labels from centers
-        bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-        results = []
-        for index in range(1, len(bin_edges)):  # bins are 1..len(edges)-1
-            in_bin = (bin_indices == index)
-            if not np.any(in_bin):
-                results.append(np.nan)
+        for ax, path in zip(axes, page):
+            try:
+                img = mpimg.imread(path)
+            except FileNotFoundError:
+                ax.text(0.5, 0.5, "Missing file", ha="center", va="center")
+                ax.axis("off")
                 continue
-            if statistic == "mean":
-                results.append(series_y[in_bin].mean())
-            elif statistic == "median":
-                results.append(series_y[in_bin].median())
-            else:
-                results.append(series_y[in_bin].sum())
 
-        bar_x = bin_centers
-        bar_heights = np.array(results, dtype=float)
+            ax.imshow(img)
+            ax.axis("off")
+            if title:
+                ax.set_title(os.path.splitext(os.path.basename(path))[0], fontsize=9)
 
-        plt.figure()
-        plt.bar(bar_x, bar_heights, width=np.diff(bin_edges), align="center", edgecolor="black", linewidth=0.4)
-        plt.xlabel(f"{feature_x} (binned)")
-        plt.ylabel(f"{statistic}({feature_y})")
-        plt.title(f"Binned {feature_x} vs aggregated {feature_y} ({statistic})")
+        # hide any unused axes on the last page
+        for ax in axes[len(page):]:
+            ax.axis("off")
+
         plt.tight_layout()
         plt.show()
 
-    else:
-        # categorical x -> category bars of aggregated y
-        if statistic == "mean":
-            aggregated = series_y.groupby(series_x).mean()
-        elif statistic == "median":
-            aggregated = series_y.groupby(series_x).median()
-        else:
-            aggregated = series_y.groupby(series_x).sum()
+# Selected Histograms provided in .zip folder
+grid_from_folder("Histograms", rows=4, cols=4, pattern="*.png")
 
-        # stable order: by category name
-        aggregated = aggregated.sort_index()
-
-        plt.figure()
-        plt.bar(aggregated.index.astype(str), aggregated.values, edgecolor="black", linewidth=0.4)
-        plt.xlabel(feature_x)
-        plt.ylabel(f"{statistic}({feature_y})")
-        plt.title(f"{feature_y} by {feature_x} ({statistic})")
-        plt.xticks(rotation=90)
-        plt.tight_layout()
-        plt.show()
-
-
-def hist_axes_experiment(dataframe, x_features, y_features, *, bins=20, statistic="mean", mode="binned"):
-    """
-    Loop over feature pairs and visualize with either a true 2D histogram (numeric-numeric)
-    or the binned-aggregation bars (putting feature_y on the y-axis).
-
-    :param dataframe: pandas.DataFrame; cleaned dataset.
-    :param x_features: list[str]; features to place on the x-axis.
-    :param y_features: list[str]; features to summarize/compare on the y-axis.
-    :param bins: int | "auto"; passed to the underlying plotters.
-    :param statistic: str; {'mean','median','sum'} for the binned aggregation.
-    :param mode: str; 'binned' (default) uses binned_aggregate_bars; 'hist2d' uses true 2D histogram for numeric pairs.
-    :return: None
-    """
-    for feature_x in x_features:
-        for feature_y in y_features:
-            if feature_x == feature_y:
-                continue
-
-            x_is_num = is_num_type(dataframe[feature_x])
-            y_is_num = is_num_type(dataframe[feature_y])
-
-            if mode == "hist2d" and x_is_num and y_is_num:
-                pair_hist2d_numeric(dataframe, feature_x, feature_y, bins=bins, density=False)
-            else:
-                # binned aggregation requires y to be numeric (to summarize)
-                if not y_is_num:
-                    # skip politely if y is categorical (cannot compute mean/median/sum meaningfully as numeric)
-                    # You could swap roles here if you want: aggregate x by y.
-                    continue
-                binned_aggregate_bars(dataframe, feature_x, feature_y, bins=bins, statistic=statistic)
-
-
-# e.g., x = any features (numeric or categorical), y must be numeric
-hist_axes_experiment(data, x_features=categorical_features,
-                     y_features=quantitative_features, bins=20, statistic="mean", mode="binned")
-
+# Selected Scatter Plots Provided in .zip folder
+grid_from_folder("Scatter Plots", rows=4, cols=4, pattern="*.png")
