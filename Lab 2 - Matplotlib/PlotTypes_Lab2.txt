@@ -36,25 +36,25 @@ SCATTERPLOTS
 Scatter plots are the most effective visualization for this dataset.
 Since the data is discrete and unsorted, trends that might be hidden in a line plot become visible with scatter plots, allowing us to explore relationships between numerical features.
 Key trends observed include:
-- Larger engine sizes are associated with higher vehicle prices, suggesting bigger engines cost more.
-- Heavier vehicles (higher curb weight) tend to be more expensive.
-- Higher highway fuel economy (mpg) is linked to lower prices, which seems counterintuitive, as better efficiency often comes with cheaper cars.
-- City and highway mpg increase together, showing a clear relationship.
-- Lower horsepower is linked to better highway fuel economy.
-- Smaller engines are associated with better highway fuel economy.
-- Cheaper cars tend to have better city fuel economy, possibly because horsepower influences price more than efficiency.
-- Lower horsepower correlates with better city fuel economy.
-- Smaller engines are linked to better city fuel economy.
-- Lighter vehicles (lower curb weight) have better city fuel economy.
-- Higher horsepower is associated with worse city and highway fuel economy, showing powerful cars are less efficient.
-- Larger engines produce more horsepower, confirming a strong relationship.
-- Larger engines are linked to worse city and highway fuel economy, despite expectations that bigger engines might be optimized for efficiency.
-- Heavier vehicles tend to have larger engines, as curb weight increases with engine size.
-- Heavier vehicles are more expensive, reinforcing the link between weight and cost.
-- Larger vehicles (in width and length) have worse fuel economy.
-- Longer vehicles tend to be more expensive.
 - Larger vehicles (in length/width) have bigger engines.
+- Heavier vehicles tend to have larger engines, as curb weight increases with engine size.
 - Larger vehicles have wider wheelbases, aligning with their overall size.
+- Larger engines produce more horsepower, confirming a strong relationship.
+- Higher horsepower is associated with worse city and highway fuel economy, showing powerful cars are less efficient.
+- Larger engines are linked to worse city and highway fuel economy, despite expectations that bigger engines might be optimized for efficiency.
+- Smaller engines are associated with better highway fuel economy.
+- Smaller engines are linked to better city fuel economy.
+- Lower horsepower is linked to better highway fuel economy.
+- Lower horsepower correlates with better city fuel economy.
+- City and highway mpg increase together, showing a clear relationship.
+- Larger vehicles (in width and length) have worse fuel economy.
+- Lighter vehicles (lower curb weight) have better city fuel economy.
+- Higher highway fuel economy (mpg) is linked to lower prices, which seems counterintuitive, as better efficiency often comes with cheaper cars.
+- Cheaper cars tend to have better city fuel economy, possibly because horsepower influences price more than efficiency.
+- Heavier vehicles (higher curb weight) tend to be more expensive.
+- Heavier vehicles are more expensive, reinforcing the link between weight and cost.
+- Longer vehicles tend to be more expensive.
+- Larger engine sizes are associated with higher vehicle prices, suggesting bigger engines cost more.
 
 These findings show that lighter cars typically have less horsepower but better fuel economy.
 Larger engines make vehicles heavier and more powerful but reduce efficiency and increase price.
