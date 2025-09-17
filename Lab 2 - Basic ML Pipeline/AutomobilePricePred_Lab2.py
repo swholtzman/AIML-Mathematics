@@ -108,8 +108,17 @@ print('Root Mean Squared Error = ', rmse)
 # Ref: https://en.wikipedia.org/wiki/Coefficient_of_determination
 total_sum_sq = np.sum((y_true * y_true) **2)
 res_sum_sq = np.sum((y_true * np.mean(y_true)) **2)
-CoD = 1 - (res_sum_sq/total_sum_sq)
-print('Coefficient of Determination = ', CoD)
+
+
+y_true = np.asarray(y_true, dtype=float)
+y_pred = np.asarray(y_pred, dtype=float)
+
+y_bar  = np.mean(y_true)
+ss_tot = np.sum((y_true - y_bar)**2)
+ss_res = np.sum((y_true - y_pred)**2)
+
+r2 = 1.0 - ss_res / ss_tot
+print("Coefficient of Determination =", r2)
 
 # ------ Lab Part 2 ------
 
