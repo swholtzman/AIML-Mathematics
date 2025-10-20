@@ -18,12 +18,13 @@ class BaseRegression:
     """
     Shared logic for data splitting and evaluation.
     """
-
     def __init__(self, data: pd.DataFrame):
         self.data = data
         self.training_data, self.test_data = self.custom_split(data, 0.3)
         self.beta = None
-
+        self.model = None
+        self.feature_columns = None
+        self.scaler = None
 
     @staticmethod
     def custom_split(data: pd.DataFrame, train_frac: float, random_state: int = 42) -> tuple:
@@ -123,12 +124,72 @@ class BaseRegression:
 
         return float(avg_train_error), float(avg_cv_error)
 
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        """
+        Generate predictions using fitted sklearn Lasso model.
+        (This function is identical to the Ridge one)
+
+        :param X: Feature DataFrame (standardized).
+        :return: Array of predictions.
+        """
+        if self.model is None:
+            raise RuntimeError("Model has not been fitted yet. Call .fit() first.")
+
+        X_np = np.asarray(X, dtype=np.float64)
+
+        # Do NOT add intercept column; sklearn's predict handles it
+        return self.model.predict(X_np)
+
+    def standardize_data(self, dataframe: pd.DataFrame) -> DataFrame:
+        """
+        Standardize all columns EXCEPT TARGET_D to zero mean and unit variance.
+        This fits the scaler and transforms the data.
+
+        :param dataframe: The full, *imputed* DataFrame.
+        :return: A new DataFrame with features standardized.
+        """
+        y_col = "TARGET_D"
+
+        # Get all column names except target column
+        X_cols = [col for col in dataframe.columns if col != y_col]
+
+        # --- Pre-scaling cleanup ---
+        # Find constant columns (std_dev = 0) among features,
+        #   as they cause division by zero in StandardScaler
+        features_std = dataframe[X_cols].std()
+        constant_feature_cols = features_std[features_std == 0].index
+
+        if not constant_feature_cols.empty:
+            print(f"Warning: Removing {len(constant_feature_cols)} constant feature columns "
+                  f"to prevent division by zero.")
+            # Drop from main list of feature columns
+            X_cols = [col for col in X_cols if col not in constant_feature_cols]
+            # And drop them from dataframe copy
+            dataframe = dataframe.drop(columns=constant_feature_cols)
+        # --- End pre-scaling cleanup ---
+
+        # Store clean feature columns
+        self.feature_columns = X_cols
+
+        self.scaler = StandardScaler()
+
+        # Fit scaler ONLY on non-constant feature columns
+        X_standard = self.scaler.fit_transform(dataframe[X_cols]).astype(np.float64)
+
+        # Create copy to hold standardized data
+        dataframe_standard = dataframe.copy()
+
+        # Overwrite feature columns with standardized versions
+        dataframe_standard[X_cols] = X_standard
+
+        print("Data standardization complete.")
+        return dataframe_standard
+
 
 class LinearRegressionModel(BaseRegression):
     """
     Implements OLS regression using the closed-form solution.
     """
-
     def fit(self, X: pd.DataFrame, y: pd.Series) -> np.ndarray:
         """
         Fit linear regression model using pseudo-inverse for stability
@@ -146,7 +207,6 @@ class LinearRegressionModel(BaseRegression):
 
         self.beta = np.linalg.pinv(X) @ y
         return self.beta
-
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         """
@@ -220,14 +280,13 @@ class RidgeRegressionModel(BaseRegression):
         self.feature_columns: list[str] | None = None
         self.model: sk.Ridge | None = None
 
-        # Standardize the entire dataset first
+        # Standardize entire dataset first
         std_data = self.standardize_data(data)
         self.data = std_data
 
         # Split into train/test after standardizing
         self.training_data, self.test_data = self.custom_split(std_data, 0.3)
         self.beta = None
-
 
     def fit(self, X: pd.DataFrame, y: pd.Series, lam: float = 1.0) -> None:
         """
@@ -250,69 +309,6 @@ class RidgeRegressionModel(BaseRegression):
 
         # Store coefficients for viewing
         self.beta = self.model.coef_
-
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        """
-        Generate predictions using fitted sklearn Ridge model.
-
-        :param X: Feature DataFrame (standardized).
-        :return: Array of predictions.
-        """
-        if self.model is None:
-            raise RuntimeError("Model has not been fitted yet. Call .fit() first.")
-
-        X_np = np.asarray(X, dtype=np.float64)
-
-        # Do NOT add intercept column; sklearn's predict handles it
-        return self.model.predict(X_np)
-
-
-    def standardize_data(self, dataframe: pd.DataFrame) -> DataFrame:
-        """
-        Standardize all columns EXCEPT TARGET_D to zero mean and unit variance.
-        This fits the scaler and transforms the data.
-
-        :param dataframe: The full, *imputed* DataFrame.
-        :return: A new DataFrame with features standardized.
-        """
-        y_col = "TARGET_D"
-
-        # Get all column names except target column
-        X_cols = [col for col in dataframe.columns if col != y_col]
-
-        # --- Pre-scaling cleanup ---
-        # Find constant columns (std_dev = 0) among features,
-        #   as they cause division by zero in StandardScaler
-        features_std = dataframe[X_cols].std()
-        constant_feature_cols = features_std[features_std == 0].index
-
-        if not constant_feature_cols.empty:
-            print(f"Warning: Removing {len(constant_feature_cols)} constant feature columns "
-                  f"to prevent division by zero.")
-            # Drop from main list of feature columns
-            X_cols = [col for col in X_cols if col not in constant_feature_cols]
-            # And drop them from dataframe copy
-            dataframe = dataframe.drop(columns=constant_feature_cols)
-        # --- End pre-scaling cleanup ---
-
-        # Store clean feature columns
-        self.feature_columns = X_cols
-
-        self.scaler = StandardScaler()
-
-        # Fit scaler ONLY on non-constant feature columns
-        X_standard = self.scaler.fit_transform(dataframe[X_cols]).astype(np.float64)
-
-        # Create copy to hold standardized data
-        dataframe_standard = dataframe.copy()
-
-        # Overwrite feature columns with standardized versions
-        dataframe_standard[X_cols] = X_standard
-
-        print("Data standardization complete.")
-        return dataframe_standard
-
 
     def run_ridge_analysis(self, lambda_values: list | np.ndarray, k_folds: int = 5) -> float:
         """
@@ -393,6 +389,128 @@ class RidgeRegressionModel(BaseRegression):
         return float(best_lambda)
 
 
+class LassoRegressionModel(BaseRegression):
+    def __init__(self, data: pd.DataFrame):
+        # super() splits unstandardized data
+        #   must split again after standardization
+        super().__init__(data)
+        self.scaler: StandardScaler | None = None
+        self.feature_columns: list[str] | None = None
+        self.model: sk.Lasso | None = None
+
+        # Standardize the entire dataset first
+        std_data = self.standardize_data(data)
+        self.data = std_data
+
+        # Split into train/test after standardizing
+        self.training_data, self.test_data = self.custom_split(std_data, 0.3)
+        self.beta = None
+
+    def fit(self, X: pd.DataFrame, y: pd.Series, lam: float = 1.0) -> None:
+        """
+        Fit a Lasso regression model using sklearn.
+        sklearn's Lasso handles intercept automatically
+            (fit_intercept=True by default), so do NOT add
+            a column of ones.
+
+        :param X: Feature DataFrame (standardized).
+        :param y: Target Series.
+        :param lam: Regularization strength (known as 'alpha' in sklearn).
+        """
+
+        # --- Use sk.Lasso and add max_iter ---
+        self.model = sk.Lasso(alpha=lam, fit_intercept=True, max_iter=100000)
+        # --- max_iter is necessary for Lasso as algorithm is much more computationally
+        #   heavy than the Ridge Regression algorithm ---
+
+        # Data to numpy array for sklearn
+        X_np = np.asarray(X, dtype=np.float64)
+        y_np = np.asarray(y, dtype=np.float64)
+
+        self.model.fit(X_np, y_np)
+
+        # Store coefficients for viewing
+        self.beta = self.model.coef_
+
+    def run_lasso_analysis(self, lambda_values: list | np.ndarray, k_folds: int = 5) -> float:
+        """
+        Performs analysis for Lasso regression:
+        - Loops through all provided lambda values.
+        - Calls `cross_validation_split` for each lambda to get avg train/CV MAE.
+        - Plots the average MAE values vs. lambda (log scale).
+        - Determines and returns the best lambda (which minimizes CV MAE)
+
+        :param lambda_values: A list or array of lambda values to test.
+        :param k_folds: The number of folds for cross-validation (e.g., 5).
+        :return: The best lambda value (float)
+        """
+        print("\n=== LAB 6 PART 3 - LASSO REGRESSION CV ===")
+
+        # Get full training dataset (pre-standardized via init)
+        y_col = "TARGET_D"
+
+        # Use stored feature columns
+        X_cols = self.feature_columns
+
+        X_train_full = self.training_data[X_cols]
+        y_train_full = self.training_data[y_col]
+
+        # Lists to store avg MAE for each Lambda
+        avg_train_maes = []
+        avg_cv_maes = []
+
+        print(f"Starting {k_folds}-fold cross-validation for {len(lambda_values)} lambda values...")
+
+        # --- Loop and Evaluate ---
+        for lam_val in lambda_values:
+            # Create "prototype" model for this lambda
+            model_prototype = sk.Lasso(alpha=lam_val, fit_intercept=True, max_iter=100000)
+
+            # Use generic cross_validation_split from BaseRegresssion classs
+            train_mae, cross_val_mae = self.cross_validation_split(
+                model_prototype=model_prototype,
+                data_x=X_train_full,
+                data_y=y_train_full,
+                k_folds=k_folds,
+            )
+
+            # Store results
+            avg_train_maes.append(train_mae)
+            avg_cv_maes.append(cross_val_mae)
+
+        print("Cross validation complete !")
+
+        # --- Plotting ---
+        plt.figure(figsize=(10, 6))
+        plt.plot(lambda_values, avg_train_maes, 'bo-', label="Average Training MAE")
+        plt.plot(lambda_values, avg_cv_maes, 'ro-', label="Average Cross-Validation MAE")
+
+        # Use log scaling for x-axis (labda)
+        plt.xscale('log')
+        plt.xlabel('Lambda (Regularization Strength) - Log Scale')
+        plt.ylabel('Mean Absolute Error (MAE)')
+        plt.title('Lasso Regression: MAE vs Lambda (5-fold CV)')
+        plt.legend()
+        plt.grid(True, which="both", ls="--")
+
+        # Save plot to a file
+        plot_filename = "lasso_mae_vs_lambda.png"
+        plt.savefig(plot_filename)
+        print(f"Plot saved to {plot_filename}")
+
+        # --- Determine Best Lambda ---
+        # Find index of minimum Cross-Validation MAE
+        best_lambda_index = np.argmin(avg_cv_maes)
+        best_lambda = lambda_values[best_lambda_index]
+
+        print(f"\n--- Best Lambda Determination (Lasso) ---")
+        print(f"Best Lambda (Minimized CV MAE): {best_lambda:e}")
+        print(f" -> Minimum CV MAE: {avg_cv_maes[best_lambda_index]:.4f}")
+        print(f" -> Training MAE at best lambda: {avg_train_maes[best_lambda_index]:.4f}")
+
+        return float(best_lambda)
+
+
 def main():
     # Load data (Step 1)
     data = loader.LoadData().load("./data/data_lab6.csv")
@@ -417,6 +535,7 @@ def main():
     warnings.filterwarnings('ignore', category=RuntimeWarning)
     # --- END SUPPRESSION ---
 
+    # ======================================
     # KEY LEARNING NOTES:
     # Linear regression fails with this model as there are too many parameters for too few samples.
     # The pre-processed data has over 3,000 features (p)
@@ -424,6 +543,7 @@ def main():
     # As stated in text and in class, with p>>N, we fall into a "curse of dimensionality" problem
     # Attempting to solve OLS (stnd Linear Reg.), the XtX matrix determinant is 0 and cannot be inverted
     # Step 1's failures are shown in the console for learning, but are now unhelpful in step 2 and are therefore suppressed
+    # ======================================
 
     # --- Part 2 (Ridge Regression) ---
     # Handles standardization (Step 2) and splitting (Step 3)
@@ -457,11 +577,6 @@ def main():
     print(f"Mean Absolute Error (MAE) for Testing (Ridge):  {ridge_test_mae:.4f}")
     print("===============================================")
 
-    # --- Step 7: Compare Models ---
-    print("\n=== LAB 6 COMPARISON (Step 7) ===")
-    print(f"Linear Regression Test MAE: {lin_reg_test_mae:.4f}")
-    print(f"Ridge Regression Test MAE:  {ridge_test_mae:.4f}")
-
     improvement = lin_reg_test_mae - ridge_test_mae
 
     # Check for meaningful improvement
@@ -474,6 +589,80 @@ def main():
         print("Ridge regression performed almost identically to linear regression.")
     print("=================================")
 
+    # --- Part 3 (Lasso Regression) ---
+    print("\n--- Starting Part 3: Lasso ---")
+    lasso_model = LassoRegressionModel(data)
+
+    # 10^-2 to 10^2, with the exponent increasing by 0.25
+    lasso_powers = np.arange(-2, 2.25, 0.25)
+    lambda_values_lasso = 10 ** lasso_powers
+
+    best_lambda_lasso = lasso_model.run_lasso_analysis(lambda_values_lasso, k_folds=5)
+
+    # --- Final Lasso Evaluation ---
+    print(f"\n--- Final Evaluation (Lasso) ---")
+    X_train_lasso = lasso_model.training_data[lasso_model.feature_columns]
+    y_train_lasso = lasso_model.training_data["TARGET_D"]
+    X_test_lasso = lasso_model.test_data[lasso_model.feature_columns]
+    y_test_lasso = lasso_model.test_data["TARGET_D"]
+
+    lasso_model.fit(X_train_lasso, y_train_lasso, lam=best_lambda_lasso)
+    y_test_pred_lasso = lasso_model.predict(X_test_lasso)
+
+    lasso_test_mae = lasso_model.mean_absolute_error(y_test_lasso, y_test_pred_lasso)
+    print(f"Mean Absolute Error (MAE) for Testing (Lasso):  {lasso_test_mae:.4f}")
+
+    # --- Part 3, Step 6: Determine Top 3 Features ---
+    print("\n--- Part 3, Step 6: Top 3 Lasso Features ---")
+
+    # Get coefficients (betas) from fitted model
+    lasso_betas = lasso_model.model.coef_
+
+    # Get the corresponding feature names
+    feature_names = lasso_model.feature_columns
+
+    # Create a Pandas Series to map names to betas
+    coef_series = pd.Series(lasso_betas, index=feature_names)
+
+    # Get top 3 features by abs beta values
+    top_3_features = coef_series.abs().nlargest(3)
+
+    print("Top 3 features with the strongest effect (largest absolute coefficients):")
+    for feature_name, abs_coef in top_3_features.items():
+        # Get original beta (with its sign)
+        original_coef = coef_series[feature_name]
+        print(f"  - Feature: {feature_name}")
+        print(f"    Coefficient: {original_coef:.4f} (Absolute Value: {abs_coef:.4f})")
+
+    print("============================================")
+
+    # --- Step 7: Compare Models ---
+    print("\n=== LAB 6 COMPARISON (Step 7) ===")
+    print(f"Linear Regression Test MAE: {lin_reg_test_mae:.4f}")
+    print(f"Ridge Regression Test MAE:  {ridge_test_mae:.4f}")
+    print(f"Lasso Regression Test MAE:  {lasso_test_mae:.4f}")
+    print("=================================")
+
+    # --- Part 3, Step 5: Determine Most Suitable Model ---
+    print("\n--- Part 3, Step 5: Most Suitable Model ---")
+
+    # Create dict of final test MAE values
+    models_mae = {
+        "Linear Regression": lin_reg_test_mae,
+        "Ridge Regression": ridge_test_mae,
+        "Lasso Regression": lasso_test_mae
+    }
+
+    # Find model name with minimum MAE (value)
+    best_model_name = min(models_mae, key=models_mae.get)
+    best_mae = models_mae[best_model_name]
+
+    print(f"The most suitable model to predict donation amount is {best_model_name}")
+    print(f"It achieved the lowest Test MAE: {best_mae:.4f}")
+    print("==============================================")
+
+    # ======
+    # RIDGE REGRESSION DESCRIPTION (PART 2: STEP 7)
     # We can see the output is drastically different between part 1 and part 2
     # The MAE of part 1 (~27) is massive, while part 2 MAE is 8 (significant reduction in error)
     # The number of features vs samples (as described in comments above) pulls us into a problem of dimensionality
@@ -485,6 +674,15 @@ def main():
     # """ - https://www.youtube.com/watch?v=Q81RR3yKn30
     # Since we are able to reduce the sensitifity and improve our bias-variance measure on such a small data set (compared to size of feature set
     #   we can more accurately adjust our models measurements
+
+    # LASSO REGRESSION ADDITION (PART 3: STEP 4)
+    # The output of lasso is drastically better than the Linear Regression model, showing a similar effect on the MAE as
+    # Ridge Regression was able to find, however it is slightly worse than the MAE found by Ridge Regression.
+    # Lasso and Ridge are very similar models, but Lasso outperforms Ridge best when there are a lot of irrelevant features.
+    # Finding that Ridge performed better on the unseen data than Lasso, indicates that the features that were used in this data set
+    # are mostly relevant, and that the extra computation to reduce the influence of any unnecessary features to 0, was not worth it,
+    # and brought down the overall performance of the model by negatively impacting those features that are important to the true function of this particular model.
+    #
 
 
 if __name__ == "__main__":
